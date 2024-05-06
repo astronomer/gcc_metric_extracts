@@ -20,7 +20,9 @@ if __name__ == "__main__":
         "-c",
         "--cluster",
         required=True,
-        help="Name of the GKE cluster running Cloud Composer Airflow components. Available via the view cluster details link found in the Cloud Composer Environment Configuration tab",
+        help="""Name of the GKE cluster running Cloud Composer Airflow components. \
+                Available via the view cluster details link found in the\
+                      Cloud Composer Environment Configuration tab""",
     )
     parser.add_argument(
         "-l",

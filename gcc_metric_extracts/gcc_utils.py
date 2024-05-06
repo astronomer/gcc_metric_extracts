@@ -1,44 +1,41 @@
 from datetime import datetime, timedelta
 from collections import namedtuple
 from typing import Union
-from collections import defaultdict
 import polars as pl
 
 from google.cloud import monitoring_v3, monitoring_dashboard_v1
-from google.protobuf.json_format import MessageToDict
+from google.protobuf.json_format import MessageToDict  # type: ignore
 
-# type corresponds to google's data type (i.e. 'double_value', 'int64_value')
+
 UsageLimit = namedtuple("UsageLimit", "used limit")
 UsageMinMax = namedtuple("UsageMinMax", "used min max")
 
-
 # todo: implement builder pattern for MQL
-class MQLBuilder:
+# class MQLBuilder:
+#     def __init__(self) -> None:
+#         self.query = {}
 
-    def __init__(self):
-        self.query = {}
+#     def fetch(self, object) -> :
+#         self.query["fetch"] = object
 
-    def fetch(self, object):
-        self.query["fetch"] = object
+#         return self
 
-        return self
+#     def metric(self, metric):
+#         self.query["metric"] = metric
 
-    def metric(self, metric):
-        self.query["metric"] = metric
+#         return self
 
-        return self
+#     def filter(self, mql_filter):
+#         self.query["filter"] = mql_filter
 
-    def filter(self, mql_filter):
-        self.query["filter"] = mql_filter
-
-    def group_by(self, group_by):
-        self.query["group_by"] = "[]" + group_by
+#     def group_by(self, group_by):
+#         self.query["group_by"] = "[]" + group_by
 
 
 class MQLGenerator:
     def __init__(
         self, cluster: str, environment_name: str, agg: str = "60m", lookback: int = 30
-    ):
+    ) -> None:
         self.cluster = cluster
         self.environment_name = environment_name
         self.agg = agg
@@ -46,7 +43,7 @@ class MQLGenerator:
         today = (datetime.today() + timedelta(days=1)).strftime("%Y/%m/%d 00:00")
         self.lookback = f"{lookback}d, d'{today}'"
 
-        self.mql = {
+        self.mql: dict[str, Union[UsageLimit, UsageMinMax]] = {
             "scheduler_memory": self.scheduler_memory,
             "scheduler_cpu": self.scheduler_cpu,
             "worker_cpu": self.worker_cpu,
@@ -65,7 +62,7 @@ class MQLGenerator:
         | group_by {self.agg}, [value_used_bytes_mean: mean(value.used_bytes)]
         | every {self.agg}
         | group_by [],
-            [value_used_bytes_mean_aggregate: aggregate(value_used_bytes_mean)] | within {self.lookback}""",
+            [value_used_bytes_mean_aggregate: aggregate(value_used_bytes_mean)] | within {self.lookback}""",  # noqa: E501
             f"""fetch k8s_container
         | metric 'kubernetes.io/container/memory/limit_bytes'
         | filter
@@ -74,7 +71,7 @@ class MQLGenerator:
         | group_by {self.agg}, [value_limit_bytes_mean: mean(value.limit_bytes)]
         | every {self.agg}
         | group_by [],
-            [value_limit_bytes_mean_aggregate: aggregate(value_limit_bytes_mean)] | within {self.lookback}""",
+            [value_limit_bytes_mean_aggregate: aggregate(value_limit_bytes_mean)] | within {self.lookback}""",  # noqa: E501
         )
 
     @property
@@ -88,7 +85,7 @@ class MQLGenerator:
             | align rate({self.agg})
             | every {self.agg}
             | group_by [],
-                [value_core_usage_time_aggregate: aggregate(value.core_usage_time)] | within {self.lookback}""",
+                [value_core_usage_time_aggregate: aggregate(value.core_usage_time)] | within {self.lookback}""",  # noqa: E501
             f"""fetch k8s_container
                 | metric 'kubernetes.io/container/cpu/limit_cores'
                 | filter
@@ -97,7 +94,7 @@ class MQLGenerator:
                 | group_by {self.agg}, [value_limit_cores_mean: mean(value.limit_cores)]
                 | every {self.agg}
                 | group_by [],
-                    [value_limit_cores_mean_aggregate: aggregate(value_limit_cores_mean)] | within {self.lookback}""",
+                    [value_limit_cores_mean_aggregate: aggregate(value_limit_cores_mean)] | within {self.lookback}""",  # noqa: E501
         )
 
     @property
@@ -112,7 +109,7 @@ class MQLGenerator:
             | align rate({self.agg})
             | every {self.agg}
             | group_by [],
-                [value_core_usage_time_aggregate: aggregate(value.core_usage_time)] | within {self.lookback}""",
+                [value_core_usage_time_aggregate: aggregate(value.core_usage_time)] | within {self.lookback}""",  # noqa: E501
             f"""fetch k8s_container
             | metric 'kubernetes.io/container/cpu/limit_cores'
             | filter
@@ -122,7 +119,7 @@ class MQLGenerator:
             | group_by {self.agg}, [value_limit_cores_mean: mean(value.limit_cores)]
             | every {self.agg}
             | group_by [],
-                [value_limit_cores_mean_aggregate: aggregate(value_limit_cores_mean)] | within {self.lookback}""",
+                [value_limit_cores_mean_aggregate: aggregate(value_limit_cores_mean)] | within {self.lookback}""",  # noqa: E501
         )
 
     @property
@@ -138,7 +135,7 @@ class MQLGenerator:
             | group_by {self.agg}, [value_used_bytes_mean: mean(value.used_bytes)]
             | every {self.agg}
             | group_by [],
-                [value_used_bytes_mean_aggregate: aggregate(value_used_bytes_mean)] | within {self.lookback}""",
+                [value_used_bytes_mean_aggregate: aggregate(value_used_bytes_mean)] | within {self.lookback}""",  # noqa: E501
             f"""fetch k8s_container
             | metric 'kubernetes.io/container/memory/limit_bytes'
             | filter
@@ -148,7 +145,7 @@ class MQLGenerator:
             | group_by {self.agg}, [value_limit_bytes_mean: mean(value.limit_bytes)]
             | every {self.agg}
             | group_by [],
-                [value_limit_bytes_mean_aggregate: aggregate(value_limit_bytes_mean)] | within {self.lookback}""",
+                [value_limit_bytes_mean_aggregate: aggregate(value_limit_bytes_mean)] | within {self.lookback}""",  # noqa: E501
         )
 
     @property
@@ -163,7 +160,7 @@ class MQLGenerator:
             | every {self.agg}
             | group_by [],
                 [value_num_celery_workers_min_aggregate:
-                aggregate(value_num_celery_workers_min)] | within {self.lookback}""",
+                aggregate(value_num_celery_workers_min)] | within {self.lookback}""",  # noqa: E501
             f"""fetch cloud_composer_environment
             | metric 'composer.googleapis.com/environment/worker/min_workers'
             | filter
@@ -171,7 +168,7 @@ class MQLGenerator:
                 && resource.location == 'us-central1')
             | group_by {self.agg}, [value_min_workers_min: min(value.min_workers)]
             | every {self.agg}
-            | group_by [], [value_min_workers_min_min: min(value_min_workers_min)] | within {self.lookback}""",
+            | group_by [], [value_min_workers_min_min: min(value_min_workers_min)] | within {self.lookback}""",  # noqa: E501
             f"""fetch cloud_composer_environment
             | metric 'composer.googleapis.com/environment/worker/max_workers'
             | filter
@@ -179,7 +176,7 @@ class MQLGenerator:
                 && resource.location == 'us-central1')
             | group_by {self.agg}, [value_max_workers_min: min(value.max_workers)]
             | every {self.agg}
-            | group_by [], [value_max_workers_min_max: max(value_max_workers_min)] | within {self.lookback}""",
+            | group_by [], [value_max_workers_min_max: max(value_max_workers_min)] | within {self.lookback}""",  # noqa: E501
         )
 
 
@@ -201,14 +198,14 @@ class AstroResourceMapper:
     def __init__(self) -> None:
         pass
 
-    def scheduler_size():
+    def scheduler_size(self) -> None:
         pass
 
-    def worker_size():
+    def worker_size(self) -> None:
         pass
 
 
-def get_dashboard(name: str):
+def get_dashboard(name: str) -> monitoring_dashboard_v1.Dashboard:
     # Create a client
     client = monitoring_dashboard_v1.DashboardsServiceClient()
 
@@ -223,7 +220,9 @@ def get_dashboard(name: str):
     return response
 
 
-def get_dashboard_by_project_and_id(project_id: str, dashboard_id: str):
+def get_dashboard_by_project_and_id(
+    project_id: str, dashboard_id: str
+) -> monitoring_dashboard_v1.Dashboard:
     client = monitoring_dashboard_v1.DashboardsServiceClient()
 
     # Initialize request argument(s)
@@ -237,62 +236,11 @@ def get_dashboard_by_project_and_id(project_id: str, dashboard_id: str):
     return response
 
 
-def get_mosaic_titles_and_queries(dashboard: monitoring_dashboard_v1.Dashboard):
-    """
-    util for retrieiving chart title and filters
-    """
-    return [
-        (
-            d.widget.title,
-            [dataset.time_series_query for dataset in d.widget.xy_chart.data_sets],
-        )
-        for d in dashboard.mosaic_layout.tiles
-    ]
-
-
-def get_time_series_data_for_filter(
-    project_id: str,
-    filter,
-    metric_client: monitoring_v3.MetricServiceClient = None,
-    interval: timedelta | monitoring_v3.TimeInterval = timedelta(days=14),
-):
-    if isinstance(interval, timedelta):
-        end = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        start = end - interval
-        interval = monitoring_v3.TimeInterval(
-            mapping={"end_time": end, "start_time": start}
-        )
-
-    if not metric_client:
-        metric_client = monitoring_v3.MetricServiceClient()
-
-    time_series_data = metric_client.list_time_series(
-        name=f"projects/{project_id}", filter=filter, interval=interval
-    )
-
-    return time_series_data
-
-
-def process_time_series_data(time_series_data: monitoring_v3.ListTimeSeriesResponse):
-
-    all_data = []
-    for t in time_series_data:
-        data = [
-            {
-                "timestamp": point.interval.end_time,
-                "value": point.value.__dict__,
-            }
-            for point in t.points
-        ]
-        all_data.extend(data)
-    return all_data
-
-
 def time_series_query(
-    project_id,
-    query,
-    page_size=100,
-):
+    project_id: str,
+    query: str,
+    page_size: int = 100,
+) -> monitoring_v3.ListTimeSeriesResponse:
     metric_client = monitoring_v3.QueryServiceClient()
 
     query_requests = monitoring_v3.QueryTimeSeriesRequest(
@@ -304,12 +252,17 @@ def time_series_query(
     return time_series_data
 
 
-def time_series_query_df(project_id, query, page_size=100, value_col=None):
+def time_series_query_df(
+    project_id: str,
+    query: str,
+    page_size: int = 100,
+    value_col: Union[str, None] = None,
+) -> pl.DataFrame:
     raw_data_pb = time_series_query(
         project_id=project_id, query=query, page_size=page_size
     )
     raw_data_dict = MessageToDict(raw_data_pb._pb)
-    data_type = f"{raw_data_dict['timeSeriesDescriptor']['pointDescriptors'][0]['valueType'].lower()}Value"
+    data_type = f"{raw_data_dict['timeSeriesDescriptor']['pointDescriptors'][0]['valueType'].lower()}Value"  # noqa: E501
 
     dtype_maping = {
         "doubleValue": pl.Float64,
@@ -338,7 +291,7 @@ def time_series_query_df(project_id, query, page_size=100, value_col=None):
 
 def get_df_from_mql_queries(
     project_id: str, metric: str, mql_queries: Union[UsageLimit, UsageMinMax]
-):
+) -> pl.DataFrame:
     df_list = [
         time_series_query_df(
             project_id=project_id, query=query, value_col=f"{metric}_{query_key}"
@@ -353,8 +306,8 @@ def generate_usage_report(
     environment_name: str,
     cluster: str,
     lookback: int = 30,
-    mql: MQLGenerator = None,
-):
+    mql: Union[MQLGenerator, None] = None,
+) -> pl.DataFrame:
     if not mql:
         mql = MQLGenerator(
             environment_name=environment_name, cluster=cluster, lookback=lookback
@@ -381,9 +334,9 @@ def gcc_utilization_to_astro(
     environment_name: str,
     cluster: str,
     lookback: int = 30,
-    mql: MQLGenerator = None,
-    zero_utilization_threshold=0.36,
-):
+    mql: Union[MQLGenerator, None] = None,
+    zero_utilization_threshold: float = 0.36,
+) -> pl.DataFrame:
     usage_df = generate_usage_report(
         project_id, environment_name, cluster, lookback, mql
     )

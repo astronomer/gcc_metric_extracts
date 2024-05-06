@@ -30,7 +30,7 @@ def mql():
 
 
 integration_test = pytest.mark.skipif(
-    bool(os.getenv("INTEGRATION_TEST")) == False, reason="Integration Test"
+    bool(os.getenv("INTEGRATION_TEST")) is False, reason="Integration Test"
 )
 
 

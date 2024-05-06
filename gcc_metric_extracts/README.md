@@ -18,9 +18,7 @@ pip install -r requirements.txt
 ### Windows
 
 # Usage
-Run the `extract_metrics.py` file with the command line options corresponding to your GCC environment. To view 
+Run the `extract_metrics.py` file with the command line options corresponding to your GCC environment. To view
 ```
 python extract_metrics.py --help
 ```
-
-

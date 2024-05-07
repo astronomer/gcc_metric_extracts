@@ -1,6 +1,6 @@
 import argparse
 
-from gcc_utils import generate_usage_report
+from gcc_utils import gcc_utilization_to_astro
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -34,4 +34,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    generate_usage_report(**vars(args))
+    gcc_utilization_to_astro(**vars(args))

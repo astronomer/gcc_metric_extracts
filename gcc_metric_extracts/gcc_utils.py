@@ -195,7 +195,9 @@ class AstroResourceMapper:
         for i in range(6)
     ]
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+    ) -> None:
         pass
 
     def scheduler_size(self) -> None:

@@ -6,7 +6,7 @@ Extract Cloud Composer utilization metrics and map them to expected Astronomer r
 Ensure that you are [authenticated](https://cloud.google.com/docs/authentication/gcloud) with Google Cloud and that the [Monitoring API is enabled](https://cloud.google.com/monitoring/api/enable-api#enabling-api-v3)
 
 ## Virtual Environent
-Requires python >= 3.11. Create a virtual environment, activate it an install the requirements
+Requires python >= 3.11. Create a virtual environment, activate it and install the requirements
 
 ### Linux/Mac
 ```
@@ -18,7 +18,12 @@ pip install -r requirements.txt
 ### Windows
 
 # Usage
-Run the `extract_metrics.py` file with the command line options corresponding to your GCC environment. To view
+Run the `extract_metrics.py` file with the command line options corresponding to your GCC environment. To view required args, run
 ```
 python extract_metrics.py --help
+```
+
+## Example Usage
+```
+python extract_metrics.py -p {PROJECT_ID} -e {ENVIRONMENT_NAME} -c {CLUSTER_NAME}
 ```

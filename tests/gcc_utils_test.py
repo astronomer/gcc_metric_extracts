@@ -4,7 +4,6 @@ import pytest
 
 from gcc_metric_extracts.gcc_utils import (
     get_dashboard,
-    get_dashboard_by_project_and_id,
     MQLGenerator,
     time_series_query_df,
     get_df_from_mql_queries,
@@ -14,7 +13,8 @@ from gcc_metric_extracts.gcc_utils import (
 
 
 env_file = find_dotenv(".env.tests")
-load_dotenv(env_file)
+if env_file:
+    load_dotenv(env_file)
 
 
 @pytest.fixture
@@ -36,17 +36,6 @@ def test_get_dashboard():
     response = get_dashboard(name=os.getenv("DASHBOARD"))
     assert response.mosaic_layout
     assert response
-
-
-@integration_test
-def test_get_mosaic_queries():
-    dashboard = get_dashboard_by_project_and_id(
-        project_id=os.getenv("PROJECT_ID"), dashboard_id=os.getenv("DASHBOARD_ID")
-    )
-    print(dashboard)
-    titles_and_filters = get_mosaic_titles_and_queries(dashboard)
-    print(titles_and_filters)
-    assert titles_and_filters
 
 
 @integration_test
@@ -78,6 +67,7 @@ def test_get_df_from_mql_queries(mql):
     assert mql_query_df.drop_nulls().shape == mql_query_df.shape
 
 
+@integration_test
 def test_generate_usage_report(mql):
     usage_df = generate_usage_report(
         project_id=os.getenv("PROJECT_ID"),

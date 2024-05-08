@@ -5,7 +5,6 @@ import pytest
 from gcc_metric_extracts.gcc_utils import (
     get_dashboard,
     get_dashboard_by_project_and_id,
-    get_mosaic_titles_and_queries,
     MQLGenerator,
     time_series_query_df,
     get_df_from_mql_queries,
@@ -14,10 +13,8 @@ from gcc_metric_extracts.gcc_utils import (
 )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def load_env():
-    env_file = find_dotenv(".env.tests")
-    load_dotenv(env_file)
+env_file = find_dotenv(".env.tests")
+load_dotenv(env_file)
 
 
 @pytest.fixture
@@ -91,6 +88,7 @@ def test_generate_usage_report(mql):
     assert usage_df.drop_nulls().shape == usage_df.shape
 
 
+@integration_test
 def test_gcc_utilization_to_astro():
     averages = gcc_utilization_to_astro(
         project_id=os.getenv("PROJECT_ID"),

@@ -181,30 +181,61 @@ class MQLGenerator:
 
 
 class AstroResourceMapper:
-    SCHEDULER_RESOURCES = [
-        {
-            "size": {0: "small", 1: "medium", 2: "large"}.get(i),
-            "cpu": 2**i,
-            "memory": (2 ** (i + 1)) * (2**30),
-        }
-        for i in range(3)
-    ]
 
-    WORKER_RESOURCES = [
-        {"size": f"A{5*(2**i)}", "cpu": 2**i, "memory": (2 ** (i + 1)) * (2**30)}
-        for i in range(6)
-    ]
+    def __init__(self, utilization_df: pl.DataFrame) -> None:
+        self.utilization_df = utilization_df
 
-    def __init__(
+    @property
+    def schedulers(self):
+        size_dict = {0: "small", 1: "medium", 2: "large"}
+        return [
+            {
+                "size": size_dict.get(i),
+                "cpu": 2**i,
+                "memory": (2 ** (i + 1)) * (2**30),
+            }
+            for i in range(3)
+        ]
+
+    def scheduler_size(
         self,
+        scheduler_memory_col: str = "scheduler_memory_used",
+        scheduler_cpu_col: str = "scheduler_cpu_used",
     ) -> None:
-        pass
+        memory = self.utilization_df.select(scheduler_memory_col).item()
+        cpu = self.utilization_df.select(scheduler_cpu_col).item()
 
-    def scheduler_size(self) -> None:
-        pass
+        # by default set largest
+        sched = self.schedulers[-1]["size"]
+        # if mem and cpu less than small or med, set
+        for sched in self.schedulers:
+            if memory < sched["memory"] and cpu < sched["cpu"]:
+                sched = sched["size"]
+                break
 
-    def worker_size(self) -> None:
-        pass
+        self.utilization_df = self.utilization_df.with_columns(
+            pl.lit(sched).alias("astro_scheduler_size")
+        )
+
+    def worker_size(
+        self, worker_memory_used="worker_memory_used", worker_cpu_col="worker_cpu_used"
+    ) -> None:
+        # worker cpu and memory into fractions of an a5
+        self.utilization_df = self.utilization_df.with_columns(
+            self.utilization_df.select(
+                pl.col(worker_cpu_col), (pl.col(worker_memory_used) / (2 * (2**30)))
+            )
+            .max_horizontal()
+            .alias("a5_workers")
+        )
+
+    def map_resources(self):
+
+        self.worker_size()
+
+        self.scheduler_size()
+
+        return self.utilization_df
 
 
 def get_dashboard(name: str) -> monitoring_dashboard_v1.Dashboard:
@@ -326,7 +357,7 @@ def generate_usage_report(
 
     output = pl.concat(data, how="align")
 
-    output.write_csv(f"{project_id}_{environment_name}_{cluster}_report.csv")
+    output.write_csv(f"{project_id}_{environment_name}_{cluster}_raw.csv")
 
     return output
 
@@ -347,7 +378,7 @@ def gcc_utilization_to_astro(
             usage_df.filter(
                 pl.col("worker_cpu_used") / pl.col("worker_cpu_limit")
                 >= zero_utilization_threshold
-            ).select(pl.len())
+            ).select(pl.len().alias("zero_utilization_percentage"))
         )
         / usage_df.select(pl.len())
         * 100
@@ -355,8 +386,7 @@ def gcc_utilization_to_astro(
 
     worker_averages = usage_df.select(pl.col("^worker.*$")).mean()
     scheduler_maxes = usage_df.select(pl.col("^scheduler.*$")).max()
-
-    utilization = worker_averages.with_columns(
-        scheduler_maxes, pl.lit(zero_utilization).alias("zero_utlization_percentage")
-    )
-    return utilization
+    utilization = worker_averages.with_columns(*scheduler_maxes, *zero_utilization)
+    resource_mapper = AstroResourceMapper(utilization_df=utilization)
+    utilization = resource_mapper.map_resources()
+    utilization.write_csv(f"{project_id}_{environment_name}_{cluster}_report.csv")

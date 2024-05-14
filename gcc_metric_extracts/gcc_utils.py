@@ -181,12 +181,11 @@ class MQLGenerator:
 
 
 class AstroResourceMapper:
-
     def __init__(self, utilization_df: pl.DataFrame) -> None:
         self.utilization_df = utilization_df
 
     @property
-    def schedulers(self):
+    def schedulers(self) -> list[dict[str, Union[str, int]]]:
         size_dict = {0: "small", 1: "medium", 2: "large"}
         return [
             {
@@ -218,7 +217,9 @@ class AstroResourceMapper:
         )
 
     def worker_size(
-        self, worker_memory_used="worker_memory_used", worker_cpu_col="worker_cpu_used"
+        self,
+        worker_memory_used: str = "worker_memory_used",
+        worker_cpu_col: str = "worker_cpu_used",
     ) -> None:
         # worker cpu and memory into fractions of an a5
         self.utilization_df = self.utilization_df.with_columns(
@@ -229,8 +230,7 @@ class AstroResourceMapper:
             .alias("a5_workers")
         )
 
-    def map_resources(self):
-
+    def map_resources(self) -> pl.DataFrame:
         self.worker_size()
 
         self.scheduler_size()

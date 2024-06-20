@@ -26,6 +26,11 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "-l",
+        "--location",
+        required=True,
+        help="""Location of the configured environment i.e., us-central1""",
+    )
+    parser.add_argument(
         "--lookback",
         default=30,
         required=False,

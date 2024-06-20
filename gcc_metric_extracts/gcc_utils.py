@@ -34,10 +34,16 @@ UsageMinMax = namedtuple("UsageMinMax", "used min max")
 
 class MQLGenerator:
     def __init__(
-        self, cluster: str, environment_name: str, agg: str = "60m", lookback: int = 30
+        self,
+        cluster: str,
+        environment_name: str,
+        location: str,
+        agg: str = "60m",
+        lookback: int = 30,
     ) -> None:
         self.cluster = cluster
         self.environment_name = environment_name
+        self.location = location
         self.agg = agg
         # set the end date to be beginning of tomorrow
         today = (datetime.today() + timedelta(days=1)).strftime("%Y/%m/%d 00:00")
@@ -128,7 +134,7 @@ class MQLGenerator:
             f"""fetch k8s_container
             | metric 'kubernetes.io/container/memory/used_bytes'
             | filter
-                (resource.cluster_name == 'us-central1-composer-datapl-af554142-gke'
+                (resource.cluster_name == '{self.cluster}'
                 && resource.pod_name =~ 'airflow-worker-.*'
                 && resource.pod_name !~ 'airflow-worker-set-.*')
                 && (metric.memory_type == 'non-evictable')
@@ -139,7 +145,7 @@ class MQLGenerator:
             f"""fetch k8s_container
             | metric 'kubernetes.io/container/memory/limit_bytes'
             | filter
-                (resource.cluster_name == 'us-central1-composer-datapl-af554142-gke'
+                (resource.cluster_name == '{self.cluster}'
                 && resource.pod_name =~ 'airflow-worker-.*'
                 && resource.pod_name !~ 'airflow-worker-set-.*')
             | group_by {self.agg}, [value_limit_bytes_mean: mean(value.limit_bytes)]
@@ -155,7 +161,7 @@ class MQLGenerator:
             | metric 'composer.googleapis.com/environment/num_celery_workers'
             | filter
                 (resource.environment_name == '{self.environment_name}'
-                && resource.location == 'us-central1')
+                && resource.location == '{self.location}')
             | group_by {self.agg}, [value_num_celery_workers_min: min(value.num_celery_workers)]
             | every {self.agg}
             | group_by [],
@@ -164,16 +170,16 @@ class MQLGenerator:
             f"""fetch cloud_composer_environment
             | metric 'composer.googleapis.com/environment/worker/min_workers'
             | filter
-                (resource.environment_name == 'composer-dataplex-testing'
-                && resource.location == 'us-central1')
+                (resource.environment_name == '{self.environment_name}'
+                && resource.location == '{self.location}')
             | group_by {self.agg}, [value_min_workers_min: min(value.min_workers)]
             | every {self.agg}
             | group_by [], [value_min_workers_min_min: min(value_min_workers_min)] | within {self.lookback}""",  # noqa: E501
             f"""fetch cloud_composer_environment
             | metric 'composer.googleapis.com/environment/worker/max_workers'
             | filter
-                (resource.environment_name == 'composer-dataplex-testing'
-                && resource.location == 'us-central1')
+                (resource.environment_name == '{self.environment_name}'
+                && resource.location == '{self.location}')
             | group_by {self.agg}, [value_max_workers_min: min(value.max_workers)]
             | every {self.agg}
             | group_by [], [value_max_workers_min_max: max(value_max_workers_min)] | within {self.lookback}""",  # noqa: E501
@@ -311,7 +317,7 @@ def time_series_query_df(
     df = pl.DataFrame(
         timestamp_value_tuples,
         schema={
-            "timestamp": None,
+            "timestamp": pl.String,
             value_col if value_col else "value": dtype_maping.get(data_type),
         },
     )
@@ -338,12 +344,16 @@ def generate_usage_report(
     project_id: str,
     environment_name: str,
     cluster: str,
+    location: str,
     lookback: int = 30,
     mql: Union[MQLGenerator, None] = None,
 ) -> pl.DataFrame:
     if not mql:
         mql = MQLGenerator(
-            environment_name=environment_name, cluster=cluster, lookback=lookback
+            environment_name=environment_name,
+            cluster=cluster,
+            lookback=lookback,
+            location=location,
         )
 
     # todo: use google's async client instead
@@ -366,12 +376,13 @@ def gcc_utilization_to_astro(
     project_id: str,
     environment_name: str,
     cluster: str,
+    location: str,
     lookback: int = 30,
     mql: Union[MQLGenerator, None] = None,
     zero_utilization_threshold: float = 0.36,
 ) -> pl.DataFrame:
     usage_df = generate_usage_report(
-        project_id, environment_name, cluster, lookback, mql
+        project_id, environment_name, cluster, location, lookback, mql
     )
     zero_utilization = (
         (

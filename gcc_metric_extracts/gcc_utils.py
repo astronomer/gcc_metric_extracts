@@ -211,15 +211,15 @@ class AstroResourceMapper:
         cpu = self.utilization_df.select(scheduler_cpu_col).item()
 
         # by default set largest
-        sched = self.schedulers[-1]["size"]
+        recommended_sched = self.schedulers[-1]["size"]
         # if mem and cpu less than small or med, set
         for sched in self.schedulers:
             if memory < sched["memory"] and cpu < sched["cpu"]:
-                sched = sched["size"]
+                recommended_sched = sched["size"]
                 break
 
         self.utilization_df = self.utilization_df.with_columns(
-            pl.lit(sched).alias("astro_scheduler_size")
+            pl.lit(recommended_sched).alias("astro_scheduler_size")
         )
 
     def worker_size(

@@ -25,5 +25,5 @@ python extract_metrics.py --help
 
 ## Example Usage
 ```
-python extract_metrics.py -p {PROJECT_ID} -e {ENVIRONMENT_NAME} -c {CLUSTER_NAME}
+python extract_metrics.py -p {PROJECT_ID} -e {ENVIRONMENT_NAME} -c {CLUSTER_NAME} -l {LOCATION}
 ```

@@ -1,10 +1,11 @@
 import os
 from dotenv import find_dotenv, load_dotenv
 import pytest
-
+from google.protobuf.json_format import MessageToDict
 from gcc_metric_extracts.gcc_utils import (
     get_dashboard,
     MQLGenerator,
+    time_series_query,
     time_series_query_df,
     get_df_from_mql_queries,
     generate_usage_report,
@@ -43,8 +44,16 @@ def test_time_series_query():
     mql = MQLGenerator(
         cluster=os.getenv("CLUSTER"),
         environment_name=os.getenv("ENVIRONMENT_NAME"),
-        lookback="1d",
+        location=os.getenv("LOCATION"),
     )
+    raw_data = time_series_query(
+        project_id=os.getenv("PROJECT_ID"),
+        query=mql.mql["scheduler_cpu"].used,
+    )
+    raw_dict = MessageToDict(raw_data._pb)
+    print(raw_dict)
+
+    print(mql.mql["scheduler_cpu"].used)
     data = time_series_query_df(
         project_id=os.getenv("PROJECT_ID"),
         query=mql.mql["scheduler_cpu"].used,

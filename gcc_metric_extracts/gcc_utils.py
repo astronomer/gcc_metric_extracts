@@ -1,12 +1,13 @@
 from datetime import datetime, timedelta
 from collections import namedtuple
+from logging import getLogger
 from typing import Union
 import polars as pl
 
 from google.cloud import monitoring_v3, monitoring_dashboard_v1
 from google.protobuf.json_format import MessageToDict  # type: ignore
 
-
+logger = getLogger(name=__name__)
 UsageLimit = namedtuple("UsageLimit", "used limit")
 UsageMinMax = namedtuple("UsageMinMax", "used min max")
 
@@ -301,6 +302,9 @@ def time_series_query_df(
         project_id=project_id, query=query, page_size=page_size
     )
     raw_data_dict = MessageToDict(raw_data_pb._pb)
+    if not raw_data_dict["timeSeriesDescriptor"]:
+        raise Exception(f"No data found for query {value_col}")
+
     data_type = f"{raw_data_dict['timeSeriesDescriptor']['pointDescriptors'][0]['valueType'].lower()}Value"  # noqa: E501
 
     dtype_maping = {

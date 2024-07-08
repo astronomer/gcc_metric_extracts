@@ -8,8 +8,6 @@ from gcc_metric_extracts.gcc_utils import (
     time_series_query,
     time_series_query_df,
     get_df_from_mql_queries,
-    generate_usage_report,
-    gcc_utilization_to_astro,
 )
 
 
@@ -42,7 +40,6 @@ def test_get_dashboard():
 
 @integration_test
 def test_time_series_query(gcc_rg):
-
     raw_data = time_series_query(
         project_id=os.getenv("PROJECT_ID"),
         query=gcc_rg.mql["scheduler_cpu"].used,

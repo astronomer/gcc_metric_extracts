@@ -1,11 +1,18 @@
 from datetime import datetime, timedelta
 from collections import namedtuple
+import logging
+import os
 from typing import Union
+
 import polars as pl
 
 from google.cloud import monitoring_v3, monitoring_dashboard_v1
 from google.protobuf.json_format import MessageToDict  # type: ignore
 
+logger = logging.getLogger(name=__name__)
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+logger.addHandler(handler)
 
 UsageLimit = namedtuple("UsageLimit", "used limit")
 UsageMinMax = namedtuple("UsageMinMax", "used min max")
@@ -32,15 +39,17 @@ UsageMinMax = namedtuple("UsageMinMax", "used min max")
 #         self.query["group_by"] = "[]" + group_by
 
 
-class MQLGenerator:
+class GccReportGenerator:
     def __init__(
         self,
+        project_id: str,
         cluster: str,
         environment_name: str,
         location: str,
-        agg: str = "60m",
+        agg: str = "1m",
         lookback: int = 30,
     ) -> None:
+        self.project_id = project_id
         self.cluster = cluster
         self.environment_name = environment_name
         self.location = location
@@ -48,6 +57,7 @@ class MQLGenerator:
         # set the end date to be beginning of tomorrow
         today = (datetime.today() + timedelta(days=1)).strftime("%Y/%m/%d 00:00")
         self.lookback = f"{lookback}d, d'{today}'"
+        self.logger = logger
 
         self.mql: dict[str, Union[UsageLimit, UsageMinMax]] = {
             "scheduler_memory": self.scheduler_memory,
@@ -185,63 +195,71 @@ class MQLGenerator:
             | group_by [], [value_max_workers_min_max: max(value_max_workers_min)] | within {self.lookback}""",  # noqa: E501
         )
 
+    def get_df_from_mql_queries(
+        self, metric: str, mql_queries: Union[UsageLimit, UsageMinMax]
+    ) -> pl.DataFrame:
+        df_list = [
+            time_series_query_df(
+                project_id=self.project_id,
+                query=query,
+                value_col=f"{metric}_{query_key}",
+            )
+            for query_key, query in mql_queries._asdict().items()
+        ]
+        return pl.concat(df_list, how="align")
 
-class AstroResourceMapper:
-    def __init__(self, utilization_df: pl.DataFrame) -> None:
-        self.utilization_df = utilization_df
-
-    @property
-    def schedulers(self) -> list[dict[str, Union[str, int]]]:
-        size_dict = {0: "small", 1: "medium", 2: "large"}
-        return [
-            {
-                "size": size_dict.get(i),
-                "cpu": 2**i,
-                "memory": (2 ** (i + 1)) * (2**30),
-            }
-            for i in range(3)
+    # todo make async calls to dashboard endpoints
+    def generate_usage_report(self) -> pl.DataFrame:
+        self.logger.info(f"Retrieving metrics for environment {self.environment_name}")
+        data = [
+            self.get_df_from_mql_queries(metric=metric, mql_queries=mql_queries)
+            for metric, mql_queries in self.mql.items()
         ]
 
-    def scheduler_size(
-        self,
-        scheduler_memory_col: str = "scheduler_memory_used",
-        scheduler_cpu_col: str = "scheduler_cpu_used",
-    ) -> None:
-        memory = self.utilization_df.select(scheduler_memory_col).item()
-        cpu = self.utilization_df.select(scheduler_cpu_col).item()
-
-        # by default set largest
-        recommended_sched = self.schedulers[-1]["size"]
-        # if mem and cpu less than small or med, set
-        for sched in self.schedulers:
-            if memory < sched["memory"] and cpu < sched["cpu"]:
-                recommended_sched = sched["size"]
-                break
-
-        self.utilization_df = self.utilization_df.with_columns(
-            pl.lit(recommended_sched).alias("astro_scheduler_size")
+        output = pl.concat(data, how="align")
+        self.logger.info(
+            f"Utilization metrics retrieved for environment {self.environment_name}"
+        )
+        output_file = (
+            f"{self.project_id}_{self.environment_name}_{self.cluster}_raw.csv"
+        )
+        output.write_csv(output_file)
+        self.logger.info(
+            f"GCC utlization metrics saved to {os.path.join(os.getcwd(), output_file)}"
         )
 
-    def worker_size(
-        self,
-        worker_memory_used: str = "worker_memory_used",
-        worker_cpu_col: str = "worker_cpu_used",
-    ) -> None:
-        # worker cpu and memory into fractions of an a5
-        self.utilization_df = self.utilization_df.with_columns(
-            self.utilization_df.select(
-                pl.col(worker_cpu_col), (pl.col(worker_memory_used) / (2 * (2**30)))
+        return output
+
+    def gcc_utilization_summary(
+        self, zero_utilization_threshold: float = 0.36
+    ) -> pl.DataFrame:
+        usage_df = self.generate_usage_report()
+        self.logger.info("summarizing utilization metrics")
+        zero_utilization = (
+            (
+                usage_df.filter(
+                    pl.col("worker_cpu_used") / pl.col("worker_cpu_limit")
+                    >= zero_utilization_threshold
+                ).select(pl.len().alias("zero_utilization_percentage"))
             )
-            .max_horizontal()
-            .alias("a5_workers")
+            / usage_df.select(pl.len())
+            * 100
         )
 
-    def map_resources(self) -> pl.DataFrame:
-        self.worker_size()
+        worker_averages = usage_df.select(pl.col("^worker.*$")).mean()
+        scheduler_maxes = usage_df.select(pl.col("^scheduler.*$")).max()
+        utilization = worker_averages.with_columns(*scheduler_maxes, *zero_utilization)
+        self.logger.info(
+            f"GCC Utilization metrics summarized for env {self.environment_name}"
+        )
+        output_file = (
+            f"{self.project_id}_{self.environment_name}_{self.cluster}_report.csv"
+        )
 
-        self.scheduler_size()
-
-        return self.utilization_df
+        utilization.write_csv(output_file)
+        self.logger.info(
+            f"GCC Utilization Summary saved to {os.path.join(os.getcwd(), output_file)}"
+        )
 
 
 def get_dashboard(name: str) -> monitoring_dashboard_v1.Dashboard:
@@ -301,6 +319,9 @@ def time_series_query_df(
         project_id=project_id, query=query, page_size=page_size
     )
     raw_data_dict = MessageToDict(raw_data_pb._pb)
+    if not raw_data_dict["timeSeriesDescriptor"]:
+        raise Exception(f"No data found for query {value_col}")
+
     data_type = f"{raw_data_dict['timeSeriesDescriptor']['pointDescriptors'][0]['valueType'].lower()}Value"  # noqa: E501
 
     dtype_maping = {
@@ -338,66 +359,3 @@ def get_df_from_mql_queries(
         for query_key, query in mql_queries._asdict().items()
     ]
     return pl.concat(df_list, how="align")
-
-
-def generate_usage_report(
-    project_id: str,
-    environment_name: str,
-    cluster: str,
-    location: str,
-    lookback: int = 30,
-    mql: Union[MQLGenerator, None] = None,
-) -> pl.DataFrame:
-    if not mql:
-        mql = MQLGenerator(
-            environment_name=environment_name,
-            cluster=cluster,
-            lookback=lookback,
-            location=location,
-        )
-
-    # todo: use google's async client instead
-
-    data = [
-        get_df_from_mql_queries(
-            project_id=project_id, metric=metric, mql_queries=mql_queries
-        )
-        for metric, mql_queries in mql.mql.items()
-    ]
-
-    output = pl.concat(data, how="align")
-
-    output.write_csv(f"{project_id}_{environment_name}_{cluster}_raw.csv")
-
-    return output
-
-
-def gcc_utilization_to_astro(
-    project_id: str,
-    environment_name: str,
-    cluster: str,
-    location: str,
-    lookback: int = 30,
-    mql: Union[MQLGenerator, None] = None,
-    zero_utilization_threshold: float = 0.36,
-) -> pl.DataFrame:
-    usage_df = generate_usage_report(
-        project_id, environment_name, cluster, location, lookback, mql
-    )
-    zero_utilization = (
-        (
-            usage_df.filter(
-                pl.col("worker_cpu_used") / pl.col("worker_cpu_limit")
-                >= zero_utilization_threshold
-            ).select(pl.len().alias("zero_utilization_percentage"))
-        )
-        / usage_df.select(pl.len())
-        * 100
-    )
-
-    worker_averages = usage_df.select(pl.col("^worker.*$")).mean()
-    scheduler_maxes = usage_df.select(pl.col("^scheduler.*$")).max()
-    utilization = worker_averages.with_columns(*scheduler_maxes, *zero_utilization)
-    resource_mapper = AstroResourceMapper(utilization_df=utilization)
-    utilization = resource_mapper.map_resources()
-    utilization.write_csv(f"{project_id}_{environment_name}_{cluster}_report.csv")

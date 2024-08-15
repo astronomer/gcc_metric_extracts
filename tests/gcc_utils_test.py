@@ -1,13 +1,14 @@
 import os
 from dotenv import find_dotenv, load_dotenv
+import logging
 import pytest
 from google.protobuf.json_format import MessageToDict
 from gcc_metric_extracts.gcc_utils import (
+    UsageMinMax,
     get_dashboard,
     GccReportGenerator,
     time_series_query,
     time_series_query_df,
-    get_df_from_mql_queries,
 )
 
 
@@ -24,6 +25,61 @@ integration_test = pytest.mark.skipif(
 @pytest.fixture
 def gcc_rg():
     return GccReportGenerator(
+        project_id=os.getenv("PROJECT_ID"),
+        cluster=os.getenv("CLUSTER"),
+        environment_name=os.getenv("ENVIRONMENT_NAME"),
+        location=os.getenv("LOCATION"),
+    )
+
+
+@pytest.fixture
+def missing_data_rg():
+    class MisconfiguredRG(GccReportGenerator):
+        def __init__(
+            self,
+            project_id: str,
+            cluster: str,
+            environment_name: str,
+            location: str,
+            agg: str = "1m",
+            lookback: int = 30,
+        ) -> None:
+            super().__init__(
+                project_id, cluster, environment_name, location, agg, lookback
+            )
+
+        @property
+        def worker_count(self) -> UsageMinMax:
+            return UsageMinMax(
+                f"""fetch cloud_composer_environment
+                | metric 'composer.googleapis.com/environment/num_celery_workers'
+                | filter
+                    (resource.environment_name == 'misconfigured_resource'
+                    && resource.location == '{self.location}')
+                | group_by {self.agg}, [value_num_celery_workers_min: min(value.num_celery_workers)]
+                | every {self.agg}
+                | group_by [],
+                    [value_num_celery_workers_min_aggregate:
+                    aggregate(value_num_celery_workers_min)] | within {self.lookback}""",  # noqa: E501
+                f"""fetch cloud_composer_environment
+                | metric 'composer.googleapis.com/environment/worker/min_workers'
+                | filter
+                    (resource.environment_name == '{self.environment_name}'
+                    && resource.location == '{self.location}')
+                | group_by {self.agg}, [value_min_workers_min: min(value.min_workers)]
+                | every {self.agg}
+                | group_by [], [value_min_workers_min_min: min(value_min_workers_min)] | within {self.lookback}""",  # noqa: E501
+                f"""fetch cloud_composer_environment
+                | metric 'composer.googleapis.com/environment/worker/max_workers'
+                | filter
+                    (resource.environment_name == '{self.environment_name}'
+                    && resource.location == 'wrong_region')
+                | group_by {self.agg}, [value_max_workers_min: min(value.max_workers)]
+                | every {self.agg}
+                | group_by [], [value_max_workers_min_max: max(value_max_workers_min)] | within {self.lookback}""",  # noqa: E501
+            )
+
+    return MisconfiguredRG(
         project_id=os.getenv("PROJECT_ID"),
         cluster=os.getenv("CLUSTER"),
         environment_name=os.getenv("ENVIRONMENT_NAME"),
@@ -59,18 +115,6 @@ def test_time_series_query(gcc_rg):
 
 
 @integration_test
-def test_get_df_from_mql_queries(gcc_rg):
-    mql_query_df = get_df_from_mql_queries(
-        project_id=os.getenv("PROJECT_ID"),
-        metric="worker_count",
-        mql_queries=gcc_rg.mql["worker_count"],
-    )
-    print(mql_query_df)
-    print(mql_query_df.shape)
-    assert mql_query_df.drop_nulls().shape == mql_query_df.shape
-
-
-@integration_test
 def test_generate_usage_report(gcc_rg):
     usage_df = gcc_rg.generate_usage_report()
     print(usage_df)
@@ -79,5 +123,13 @@ def test_generate_usage_report(gcc_rg):
 
 @integration_test
 def test_gcc_utilization_to_astro(gcc_rg):
-    averages = gcc_rg.gcc_utilization_to_astro()
+    averages = gcc_rg.gcc_utilization_summary()
     print(averages)
+
+
+@integration_test
+def test_misconfigured_metric(missing_data_rg, caplog):
+    with caplog.at_level(logging.WARNING):
+        missing_data_rg.gcc_utilization_summary()
+    assert len(caplog.records) > 1
+    assert len(["No data found " in x.message for x in caplog.records]) > 0

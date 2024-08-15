@@ -206,7 +206,14 @@ class GccReportGenerator:
             )
             for query_key, query in mql_queries._asdict().items()
         ]
-        return pl.concat(df_list, how="align")
+        valid_dfs = list(filter(lambda df: df is not None, df_list))
+
+        if not valid_dfs:
+            raise Exception(
+                "No data found for any metrics, check input arguments and permissions"
+            )
+
+        return pl.concat(valid_dfs, how="align")
 
     # todo make async calls to dashboard endpoints
     def generate_usage_report(self) -> pl.DataFrame:
@@ -348,22 +355,3 @@ def time_series_query_df(
     )
 
     return df
-
-
-def get_df_from_mql_queries(
-    project_id: str, metric: str, mql_queries: Union[UsageLimit, UsageMinMax]
-) -> pl.DataFrame:
-    df_list = [
-        time_series_query_df(
-            project_id=project_id, query=query, value_col=f"{metric}_{query_key}"
-        )
-        for query_key, query in mql_queries._asdict().items()
-    ]
-    valid_dfs = list(filter(lambda df: df is not None, df_list))
-
-    if not valid_dfs:
-        raise Exception(
-            "No data found for any metrics, check your input arguments and permissions"
-        )
-
-    return pl.concat(valid_dfs, how="align")

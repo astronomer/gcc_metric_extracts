@@ -196,7 +196,7 @@ class AstroResourceMapper:
         size_dict = {0: "small", 1: "medium", 2: "large"}
         return [
             {
-                "size": size_dict.get(i),
+                "size": size_dict.get(i, 0),
                 "cpu": 2**i,
                 "memory": (2 ** (i + 1)) * (2**30),
             }
@@ -303,7 +303,8 @@ def time_series_query_df(
     )
     raw_data_dict = MessageToDict(raw_data_pb._pb)
     if not raw_data_dict["timeSeriesDescriptor"]:
-        raise Exception(f"No data found for query {value_col}")
+        logger.warning(f"No data found for query {value_col}")
+        return None
 
     data_type = f"{raw_data_dict['timeSeriesDescriptor']['pointDescriptors'][0]['valueType'].lower()}Value"  # noqa: E501
 
@@ -341,67 +342,11 @@ def get_df_from_mql_queries(
         )
         for query_key, query in mql_queries._asdict().items()
     ]
-    return pl.concat(df_list, how="align")
+    valid_dfs = list(filter(lambda df: df is not None, df_list))
 
-
-def generate_usage_report(
-    project_id: str,
-    environment_name: str,
-    cluster: str,
-    location: str,
-    lookback: int = 30,
-    mql: Union[MQLGenerator, None] = None,
-) -> pl.DataFrame:
-    if not mql:
-        mql = MQLGenerator(
-            environment_name=environment_name,
-            cluster=cluster,
-            lookback=lookback,
-            location=location,
+    if not valid_dfs:
+        raise Exception(
+            "No data found for any metrics, check your input arguments and permissions"
         )
 
-    # todo: use google's async client instead
-
-    data = [
-        get_df_from_mql_queries(
-            project_id=project_id, metric=metric, mql_queries=mql_queries
-        )
-        for metric, mql_queries in mql.mql.items()
-    ]
-
-    output = pl.concat(data, how="align")
-
-    output.write_csv(f"{project_id}_{environment_name}_{cluster}_raw.csv")
-
-    return output
-
-
-def gcc_utilization_to_astro(
-    project_id: str,
-    environment_name: str,
-    cluster: str,
-    location: str,
-    lookback: int = 30,
-    mql: Union[MQLGenerator, None] = None,
-    zero_utilization_threshold: float = 0.36,
-) -> pl.DataFrame:
-    usage_df = generate_usage_report(
-        project_id, environment_name, cluster, location, lookback, mql
-    )
-    zero_utilization = (
-        (
-            usage_df.filter(
-                pl.col("worker_cpu_used") / pl.col("worker_cpu_limit")
-                >= zero_utilization_threshold
-            ).select(pl.len().alias("zero_utilization_percentage"))
-        )
-        / usage_df.select(pl.len())
-        * 100
-    )
-
-    worker_averages = usage_df.select(pl.col("^worker.*$")).mean()
-    scheduler_maxes = usage_df.select(pl.col("^scheduler.*$")).max()
-    utilization = worker_averages.with_columns(*scheduler_maxes, *zero_utilization)
-    resource_mapper = AstroResourceMapper(utilization_df=utilization)
-    utilization = resource_mapper.map_resources()
-    utilization.write_csv(f"{project_id}_{environment_name}_{cluster}_report.csv")
+    return pl.concat(valid_dfs, how="align")

@@ -2,11 +2,13 @@ import os
 from dotenv import find_dotenv, load_dotenv
 import logging
 import pytest
+import polars as pl
 from google.protobuf.json_format import MessageToDict
 from gcc_metric_extracts.gcc_utils import (
     UsageMinMax,
     get_dashboard,
     GccReportGenerator,
+    Gcc3ReportGenerator,
     time_series_query,
     time_series_query_df,
 )
@@ -27,6 +29,17 @@ def gcc_rg():
     return GccReportGenerator(
         project_id=os.getenv("PROJECT_ID"),
         cluster=os.getenv("CLUSTER"),
+        environment_name=os.getenv("ENVIRONMENT_NAME"),
+        location=os.getenv("LOCATION"),
+    )
+
+
+@pytest.fixture
+def gcc3_rg():
+    # simulate GCC3: no cluster
+    return Gcc3ReportGenerator(
+        project_id=os.getenv("PROJECT_ID"),
+        cluster=None,
         environment_name=os.getenv("ENVIRONMENT_NAME"),
         location=os.getenv("LOCATION"),
     )
@@ -133,3 +146,33 @@ def test_misconfigured_metric(missing_data_rg, caplog):
         missing_data_rg.gcc_utilization_summary()
     assert len(caplog.records) > 1
     assert len(["No data found " in x.message for x in caplog.records]) > 0
+
+def test_gcc3_no_cluster_filenames(gcc3_rg, monkeypatch, tmp_path):
+    """
+    When cluster=None, ensure no 'None' ends up in the CSV filenames.
+    We capture write_csv calls on both generate_usage_report and summary.
+    """
+    written = []
+
+    def fake_write_csv(self, path):
+        # redirect writes into tmp_path
+        fname = os.path.basename(path)
+        written.append(fname)
+
+    monkeypatch.setattr(pl.DataFrame, "write_csv", fake_write_csv)
+
+    # run both report and summary
+    gcc3_rg.generate_usage_report()
+    gcc3_rg.gcc_utilization_summary()
+
+    # Expect exactly two writes: raw.csv and report.csv
+    assert len(written) == 2
+
+    # Neither filename should contain the literal 'None'
+    assert all("None" not in fname for fname in written)
+
+    # And they should match the pattern PROJECT_ENV_raw.csv and PROJECT_ENV_report.csv
+    proj = os.getenv("PROJECT_ID")
+    env = os.getenv("ENVIRONMENT_NAME")
+    assert f"{proj}_{env}_raw.csv" in written
+    assert f"{proj}_{env}_report.csv" in written

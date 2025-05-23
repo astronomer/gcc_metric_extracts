@@ -227,8 +227,9 @@ class GccReportGenerator:
         self.logger.info(
             f"Utilization metrics retrieved for environment {self.environment_name}"
         )
+        cluster_part = f"_{self.cluster}" if self.cluster else ""
         output_file = (
-            f"{self.project_id}_{self.environment_name}_{self.cluster}_raw.csv"
+            f"{self.project_id}_{self.environment_name}_{cluster_part}_raw.csv"
         )
         output.write_csv(output_file)
         self.logger.info(
@@ -259,8 +260,9 @@ class GccReportGenerator:
         self.logger.info(
             f"GCC Utilization metrics summarized for env {self.environment_name}"
         )
+        cluster_part = f"_{self.cluster}" if self.cluster else ""
         output_file = (
-            f"{self.project_id}_{self.environment_name}_{self.cluster}_report.csv"
+            f"{self.project_id}_{self.environment_name}_{cluster_part}_report.csv"
         )
 
         utilization.write_csv(output_file)
@@ -355,3 +357,166 @@ def time_series_query_df(
     )
 
     return df
+
+class Gcc3ReportGenerator(GccReportGenerator):
+    """
+    Report generator for GCC3 environments.
+    Overrides MQL queries and lookback formatting as required by GCC3.
+    """
+    def __init__(
+        self,
+        project_id: str,
+        cluster: str,
+        environment_name: str,
+        location: str,
+        agg: str = "1m",
+        lookback: int = 30,
+    ) -> None:
+        super().__init__(project_id, cluster, environment_name, location, agg, lookback)
+
+        # GCC3 still wants a simple "Nd" window
+        self.lookback = f"{lookback}d"
+
+        # swap in only the MQL definitions
+        self.mql = {
+            "scheduler_memory": self._gcc3_scheduler_memory,
+            "scheduler_cpu":    self._gcc3_scheduler_cpu,
+            "worker_cpu":       self._gcc3_worker_cpu,
+            "worker_memory":    self._gcc3_worker_memory,
+            "worker_count":     self._gcc3_worker_count,
+        }
+
+    @property
+    def _gcc3_scheduler_memory(self) -> UsageLimit:
+        used = f"""fetch cloud_composer_workload
+            | metric 'composer.googleapis.com/workload/memory/bytes_used'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}' && resource.type == 'SCHEDULER')
+            | group_by {self.agg}, [value_bytes_used_mean: mean(value.bytes_used)]
+            | every {self.agg}
+            | group_by [],
+            [value_bytes_used_mean_aggregate: aggregate(value_bytes_used_mean)] | within {self.lookback}"""
+
+        limit = f"""fetch cloud_composer_workload
+            | metric 'composer.googleapis.com/workload/memory/quota'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}' && resource.type == 'SCHEDULER')
+            | group_by {self.agg}, [value_quota_mean: mean(value.quota)]
+            | every {self.agg}
+            | group_by [], [value_quota_mean_aggregate: aggregate(value_quota_mean)] | within {self.lookback}"""
+
+        return UsageLimit(used, limit)
+
+    @property
+    def _gcc3_scheduler_cpu(self) -> UsageLimit:
+        used = f"""fetch cloud_composer_workload
+            | metric 'composer.googleapis.com/workload/cpu/usage_time'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}' && resource.type == 'SCHEDULER')
+            | align rate({self.agg})
+            | every {self.agg}
+            | group_by [], [value_usage_time_aggregate: aggregate(value.usage_time)] | within {self.lookback}"""
+
+        limit = f"""fetch cloud_composer_workload
+            | metric 'composer.googleapis.com/workload/cpu/reserved_cores'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}' && resource.type == 'SCHEDULER')
+            | group_by {self.agg}, [value_reserved_cores_mean: mean(value.reserved_cores)]
+            | every {self.agg}
+            | group_by [],
+                [value_reserved_cores_mean_aggregate: aggregate(value_reserved_cores_mean)] | within {self.lookback}"""
+
+        return UsageLimit(used, limit)
+
+    @property
+    def _gcc3_worker_cpu(self) -> UsageLimit:
+        used = f"""fetch cloud_composer_workload
+            | metric 'composer.googleapis.com/workload/cpu/usage_time'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}' && resource.type == 'CELERY_WORKER')
+            | align rate({self.agg})
+            | every {self.agg}
+            | group_by [], [value_usage_time_aggregate: aggregate(value.usage_time)] | within {self.lookback}"""
+
+        limit = f"""fetch cloud_composer_workload
+            | metric 'composer.googleapis.com/workload/cpu/reserved_cores'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}' && resource.type == 'CELERY_WORKER')
+            | group_by {self.agg}, [value_reserved_cores_mean: mean(value.reserved_cores)]
+            | every {self.agg}
+            | group_by [],
+                [value_reserved_cores_mean_aggregate: aggregate(value_reserved_cores_mean)] | within {self.lookback}"""
+
+        return UsageLimit(used, limit)
+
+    @property
+    def _gcc3_worker_memory(self) -> UsageLimit:
+        used = f"""fetch cloud_composer_workload
+            | metric 'composer.googleapis.com/workload/memory/bytes_used'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}' && resource.type == 'CELERY_WORKER')
+            | group_by {self.agg}, [value_bytes_used_mean: mean(value.bytes_used)]
+            | every {self.agg}
+            | group_by [],
+                [value_bytes_used_mean_aggregate: aggregate(value_bytes_used_mean)] | within {self.lookback}"""
+
+        limit = f"""fetch cloud_composer_workload
+            | metric 'composer.googleapis.com/workload/memory/quota'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}' && resource.type == 'CELERY_WORKER')
+            | group_by {self.agg}, [value_quota_mean: mean(value.quota)]
+            | every {self.agg}
+            | group_by [], [value_quota_mean_aggregate: aggregate(value_quota_mean)] | within {self.lookback}"""
+
+        return UsageLimit(used, limit)
+
+    @property
+    def _gcc3_worker_count(self) -> UsageMinMax:
+        min_query = f"""fetch cloud_composer_environment
+            | metric 'composer.googleapis.com/environment/worker/min_workers'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}')
+            | group_by {self.agg}, [value_min_workers_min: min(value.min_workers)]
+            | every {self.agg}
+            | group_by [], [value_min_workers_min_min: min(value_min_workers_min)] | within {self.lookback}"""
+
+        max_query = f"""fetch cloud_composer_environment
+            | metric 'composer.googleapis.com/environment/worker/max_workers'
+            | filter
+                resource.project_id == '{self.project_id}'
+                &&
+                (resource.environment_name == '{self.environment_name}'
+                 && resource.location == '{self.location}')
+            | group_by {self.agg}, [value_max_workers_min: min(value.max_workers)]
+            | every {self.agg}
+            | group_by [], [value_max_workers_min_max: max(value_max_workers_min)] | within {self.lookback}"""
+
+        # For GCC3 we’ll treat “used” as the min, so histogram works the same shape
+        return UsageMinMax(min_query, min_query, max_query)

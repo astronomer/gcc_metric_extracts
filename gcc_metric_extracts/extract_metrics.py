@@ -1,6 +1,6 @@
 import argparse
 
-from gcc_utils import GccReportGenerator
+from gcc_utils import GccReportGenerator, Gcc3ReportGenerator
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -19,9 +19,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "-c",
         "--cluster",
-        required=True,
+        required=False,
         help="""Name of the GKE cluster running Cloud Composer Airflow components. \
-                Available via the view cluster details link found in the\
+                    Not required if using the --gcc3 flag. \
+                    Available via the view cluster details link found in the\
                       Cloud Composer Environment Configuration tab""",
     )
     parser.add_argument(
@@ -37,7 +38,34 @@ if __name__ == "__main__":
         help="Number of days to look back to generate usage report",
     )
 
+    # ←–– New flag to pick the GCC3 subclass
+    parser.add_argument(
+        "--gcc3",
+        action="store_true",
+        help="If set, use the Gcc3ReportGenerator (for GCC3 environments)",
+    )
+
     args = parser.parse_args()
 
-    rg = GccReportGenerator(**vars(args))
+    # Pick the right class based on --gcc3
+    if args.gcc3:
+        rg = Gcc3ReportGenerator(
+            project_id=args.project_id,
+            cluster=args.cluster,
+            environment_name=args.environment_name,
+            location=args.location,
+            agg="1m",
+            lookback=args.lookback,
+        )
+    else:
+        rg = GccReportGenerator(
+            project_id=args.project_id,
+            cluster=args.cluster,
+            environment_name=args.environment_name,
+            location=args.location,
+            agg="1m",
+            lookback=args.lookback,
+        )
+
+    # Finally run the summary
     rg.gcc_utilization_summary()

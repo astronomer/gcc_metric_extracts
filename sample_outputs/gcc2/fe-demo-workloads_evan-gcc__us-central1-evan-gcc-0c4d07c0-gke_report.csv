@@ -1,0 +1,2 @@
+worker_cpu_used,worker_cpu_limit,worker_memory_used,worker_memory_limit,worker_count_used,worker_count_min,worker_count_max,scheduler_memory_used,scheduler_memory_limit,scheduler_cpu_used,scheduler_cpu_limit,zero_utilization_percentage
+0.15728806105967444,0.5,1230637828.6288981,2146435072.0,0.9999073473547669,1.0,3.0,854224896.0,2146435072.0,0.5378418006668653,0.5,29.506944444444443

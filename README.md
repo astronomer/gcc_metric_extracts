@@ -22,8 +22,9 @@ Run the `extract_metrics.py` file with the command line options corresponding to
 ```
 python extract_metrics.py --help
 ```
+**IMPORTANT:** If using with GCC 3, please include the `gcc3` flag in your command line arguments and omit the `-c` argument.
 
 ## Example Usage
 ```
-python extract_metrics.py -p {PROJECT_ID} -e {ENVIRONMENT_NAME} -c {CLUSTER_NAME} -l {LOCATION}
+python extract_metrics.py -p {PROJECT_ID} -e {ENVIRONMENT_NAME} -c {CLUSTER_NAME} -l {LOCATION} --gcc3
 ```
